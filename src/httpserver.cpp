@@ -354,6 +354,6 @@ int httpserver_start(request_callback_t rcb, const char *ip, int port) {
     // Ignore the SIGPIPE signal since we will handle it in-band.
     (void) signal(SIGPIPE, SIG_IGN);
 
-    uv_run(uv_loop);
+    uv_run(uv_loop, UV_RUN_DEFAULT);
     return 0;
 }

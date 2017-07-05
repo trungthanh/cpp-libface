@@ -1,17 +1,11 @@
-# lib-face
+# A context dependent Typeahead prototype
 
-A very fast auto-complete server; to be used for as-you-type search suggestions.
+A Typeahead (Autocomplete) server in cpp (tapp) where queries are suggested based on a combination of global scores and local similarities with a given context. The context is some words which can be extracted from the previous query for instance. The similarity between a query and the context is the inner product between the vector representations of their bags of words. In this code, words are represented by dense vectors computed from some word-to-vec packages. Tf-idf vectors of bags of words can be used instead which can yield faster speed because of sparsity.
 
-I have written a [blog post](http://dhruvbird.blogspot.com/2010/09/very-fast-approach-to-search.html) comparing various methods for implementing auto-complete for user queries.
+The http server is based on [lib-face](https://github.com/duckduckgo/cpp-libface). This Typeahead server is using a naive tree data structure with hash map links to child nodes. The space usage can be improved a little bit by using a [Ternary search tree](https://en.wikipedia.org/wiki/Ternary_search_tree).
 
-lib-face implements *Approach-4* as mentioned in the blog post. The total cost of querying (TCQ) a corpus of 'n' phrases for not more than 'k' frequently occurring phrases that share a prefix with a supplied phrase is O(k log n). This is close the best that can be done for such a requirement. lib-face also provides an option to switch to using another (faster) algorithm that results in a per-query run-time of O(k log k).
-
-You can help by testing the new ```BenderRMQ``` data structure that has an O(n) space overhead and build cost and O(1) query cost. To read up on RMQ (Range Maximum Query), see [here](http://community.topcoder.com/tc?module=Static&d1=tutorials&d2=lowestCommonAncestor#A%20O%28N%29,%20O%281%29%20algorithm%20for%20the%20restricted%20RMQ) and [here](http://www.topcoder.com/tc?module=LinkTracking&link=http://www.math.tau.ac.il/~haimk/seminar04/LCA-seminar-modified.ppt&refer=)
-
-lib-face is written using C++ and uses [libuv](https://github.com/joyent/libuv/) and the [joyent http-parser](https://github.com/joyent/http-parser/) to serve requests.
-
-Visit the [Quick Start Guide](https://github.com/duckduckgo/cpp-libface/wiki/Quick-Start-Guide) to get started now!
-
-See the [Benchmarks](https://github.com/duckduckgo/cpp-libface/wiki/Benchmarks)!
-
-Read the [paper](http://dhruvbird.com/autocomplete.pdf)!
+Dependencies:
+- http-parser and libuv (in deps)
+- armadillo library for matrix computation. You may need to comment out the line #define ARMA_USE_WRAPPER in your include_path/armadillo_bits/config.hpp.
+- OpenBLAS for fast matrix computation with armadillo (change -L/opt/OpenBLAS/lib in Makefile to your OpenBLAS localtion)
+- Boost: for command arguments (program options)

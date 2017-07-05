@@ -1,5 +1,10 @@
+/*
+ * Adapted from "cpp-libface" https://github.com/duckduckgo/cpp-libface/
+ * And gave it a different name: TA++
+ *
+ * tngo@walmartlabs.com
+ */
 
-// C-headers
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
@@ -13,8 +18,6 @@
 #include <assert.h>
 #include <fcntl.h>
 
-
-// Custom-includes
 #include <include/httpserver.hpp>
 #include <include/segtree.hpp>
 #include <include/sparsetable.hpp>
@@ -24,15 +27,22 @@
 #include <include/types.hpp>
 #include <include/utils.hpp>
 
-// C++-headers
 #include <string>
 #include <fstream>
 #include <algorithm>
+
+#include "CompleteTrieNode.h"
+#include "Index.h"
+#include "ContextManager.h"
+#include "QuerySuggestion.h"
+#include "QuerySuggester.h"
+
 
 #if !defined NMAX
 #define NMAX 32
 #endif
 
+#define NUM_SUGGESTIONS 8
 
 #if !defined INPUT_LINE_SIZE
 // Max. line size is 8191 bytes.
@@ -46,7 +56,12 @@
 // #define USE_CXX_IO
 
 
+using namespace std;
 
+
+Index queryIndexStore;
+ContextManager contextManager;
+QuerySuggester suggester(&queryIndexStore, &contextManager);
 
 PhraseMap pm;                   // Phrase Map (usually a sorted array of strings)
 RMQ st;                         // An instance of the RMQ Data Structure
@@ -58,8 +73,9 @@ int line_limit = -1;            // The number of lines to import from the input 
 time_t started_at;              // When was the server started
 bool opt_show_help = false;     // Was --help requested?
 const char *ac_file = NULL;     // Path to the input file
+const char *context_file = NULL;// context file
 int port = 6767;                // The port number on which to start the HTTP server
-const char *project_homepage_url = "https://github.com/duckduckgo/cpp-libface/";
+const char *programName = "TA++";
 
 enum {
     // We are in a non-WS state
@@ -224,8 +240,7 @@ struct InputLineParser {
 };
 
 
-off_t
-file_size(const char *path) {
+off_t file_size(const char *path) {
     struct stat sbuf;
     int r = stat(path, &sbuf);
 
@@ -238,8 +253,7 @@ file_size(const char *path) {
 }
 
 // TODO: Fix for > 2GiB memory usage by using uint64_t
-int
-get_memory_usage(pid_t pid) {
+int get_memory_usage(pid_t pid) {
     char cbuff[4096];
     sprintf(cbuff, "pmap -x %d | tail -n +3 | awk 'BEGIN { S=0;T=0 } { if (match($3, /\\-/)) {S=1} if (S==0) {T+=$3} } END { print T }'", pid);
     FILE *pf = popen(cbuff, "r");
@@ -257,13 +271,11 @@ get_memory_usage(pid_t pid) {
     return r;
 }
 
-char
-to_lowercase(char c) {
+char to_lowercase(char c) {
     return std::tolower(c);
 }
 
-inline void
-str_lowercase(std::string &str) {
+inline void str_lowercase(std::string &str) {
     std::transform(str.begin(), str.end(), 
                    str.begin(), to_lowercase);
 
@@ -271,8 +283,7 @@ str_lowercase(std::string &str) {
 
 #define BOUNDED_RETURN(CH,LB,UB,OFFSET) if (ch >= LB && CH <= UB) { return CH - LB + OFFSET; }
 
-inline int
-hex2dec(unsigned char ch) {
+inline int hex2dec(unsigned char ch) {
     BOUNDED_RETURN(ch, '0', '9', 0);
     BOUNDED_RETURN(ch, 'A', 'F', 10);
     BOUNDED_RETURN(ch, 'a', 'f', 10);
@@ -281,8 +292,7 @@ hex2dec(unsigned char ch) {
 
 #undef BOUNDED_RETURN
 
-std::string
-unescape_query(std::string const &query) {
+std::string unescape_query(std::string const &query) {
     enum {
         QP_DEFAULT = 0,
         QP_ESCAPED1 = 1,
@@ -314,8 +324,7 @@ unescape_query(std::string const &query) {
     return ret;
 }
 
-inline std::string
-uint_to_string(uint_t n, uint_t pad = 0) {
+inline std::string uint_to_string(uint_t n, uint_t pad = 0) {
     std::string ret;
     if (!n) {
         ret = "0";
@@ -333,8 +342,7 @@ uint_to_string(uint_t n, uint_t pad = 0) {
     return ret;
 }
 
-void
-escape_special_chars(std::string& str) {
+void escape_special_chars(std::string& str) {
     std::string ret;
     ret.reserve(str.size() + 10);
     for (size_t j = 0; j < str.size(); ++j) {
@@ -362,8 +370,7 @@ escape_special_chars(std::string& str) {
     ret.swap(str);
 }
 
-std::string
-rich_suggestions_json_array(vp_t& suggestions) {
+std::string rich_suggestions_json_array(vp_t& suggestions) {
     std::string ret = "[";
     ret.reserve(OUTPUT_SIZE_RESERVE);
     for (vp_t::iterator i = suggestions.begin(); i != suggestions.end(); ++i) {
@@ -379,8 +386,7 @@ rich_suggestions_json_array(vp_t& suggestions) {
     return ret;
 }
 
-std::string
-suggestions_json_array(vp_t& suggestions) {
+std::string suggestions_json_array(vp_t& suggestions) {
     std::string ret = "[";
     ret.reserve(OUTPUT_SIZE_RESERVE);
     for (vp_t::iterator i = suggestions.begin(); i != suggestions.end(); ++i) {
@@ -393,8 +399,7 @@ suggestions_json_array(vp_t& suggestions) {
     return ret;
 }
 
-std::string
-results_json(std::string q, vp_t& suggestions, std::string const& type) {
+std::string results_json(std::string q, vp_t& suggestions, std::string const& type) {
     if (type == "list") {
         escape_special_chars(q);
         return "[ \"" + q + "\", " + suggestions_json_array(suggestions) + " ]";
@@ -404,13 +409,11 @@ results_json(std::string q, vp_t& suggestions, std::string const& type) {
     }
 }
 
-std::string
-pluralize(std::string s, int n) {
+std::string pluralize(std::string s, int n) {
     return n>1 ? s+"s" : s;
 }
 
-std::string
-humanized_time_difference(time_t prev, time_t curr) {
+std::string humanized_time_difference(time_t prev, time_t curr) {
     std::string ret = "";
     if (prev > curr) {
         std::swap(prev, curr);
@@ -448,8 +451,7 @@ humanized_time_difference(time_t prev, time_t curr) {
 }
 
 
-std::string
-get_uptime() {
+std::string get_uptime() {
     return humanized_time_difference(started_at, time(NULL));
 }
 
@@ -475,8 +477,7 @@ void get_line(std::ifstream fin, char *buff, int buff_len, int &read_len) {
 }
 
 
-int
-do_import(std::string file, uint_t limit, 
+int do_import(std::string file, uint_t limit, 
           int &rnadded, int &rnlines) {
     bool is_input_sorted = true;
 #if defined USE_CXX_IO
@@ -574,6 +575,39 @@ do_import(std::string file, uint_t limit,
     return 0;
 }
 
+int initIndex(string &indexFilename) {
+  cout << "Loading index..." << endl;
+  queryIndexStore.loadFromTSVFile(indexFilename);
+  return 0;
+}
+
+int initRMQ(char* filename) {
+  int nadded, nlines;
+  const time_t start_time = time(NULL);
+  int ret = do_import(ac_file, line_limit, nadded, nlines);
+  if (ret < 0) {
+    switch (-ret) {
+      case IMPORT_FILE_NOT_FOUND:
+          fprintf(stderr, "The file '%s' was not found\n", ac_file);
+          break;
+
+      case IMPORT_MUNMAP_FAILED:
+          fprintf(stderr, "munmap(2) on file '%s' failed\n", ac_file);
+          break;
+
+      case IMPORT_MMAP_FAILED:
+          fprintf(stderr, "mmap(2) on file '%s' failed\n", ac_file);
+          break;
+
+      default:
+          cerr<<"ERROR::Unknown error: "<<ret<<endl;
+    }
+    return 1;
+  }
+  fprintf(stderr, "INFO::Successfully added %d/%d records from \"%s\" in %d second(s)\n", 
+    nadded, nlines, ac_file, (int)(time(NULL) - start_time));
+}
+
 static void handle_import(client_t *client, parsed_url_t &url) {
     std::string body;
     headers_t headers;
@@ -652,7 +686,22 @@ static void handle_export(client_t *client, parsed_url_t &url) {
     write_response(client, 200, "OK", headers, body);
 }
 
-static void handle_suggest(client_t *client, parsed_url_t &url) {
+static void handle_ping(client_t *client, parsed_url_t &url) {
+    ++nreq;
+    std::string body;
+    headers_t headers;
+    headers["Cache-Control"] = "no-cache";
+    if (building) {
+        write_response(client, 412, "Busy", headers, body);
+        return;
+    }
+    headers["Content-Type"] = "text/plain; charset=UTF-8";
+    body = "pong";
+    write_response(client, 200, "OK", headers, body);
+}
+
+
+static void handle_suggest_rmq(client_t *client, parsed_url_t &url) {
     ++nreq;
     std::string body;
     headers_t headers;
@@ -698,6 +747,40 @@ static void handle_suggest(client_t *client, parsed_url_t &url) {
     write_response(client, 200, "OK", headers, body);
 }
 
+static void handle_suggest(client_t *client, parsed_url_t &url) {
+  clock_t start_time, end_time;
+
+  start_time = clock();
+
+  ++nreq;
+  string body;
+  headers_t headers;
+  headers["Cache-Control"] = "no-cache";
+
+  if (building) {
+      write_response(client, 412, "Busy", headers, body);
+      return;
+  }
+
+  string q = unescape_query(url.query["q"]);
+  string context = unescape_query(url.query["c"]);
+  string type = unescape_query(url.query["rt"]);
+  string method = unescape_query(url.query["m"]);
+  unsigned int k = NUM_SUGGESTIONS;
+
+  cerr << "handle_suggest::q:" << q << ", context: " << context << ", method: " << method << ", type: " << type << endl;
+  QuerySuggestionList suggestionList = suggester.suggest(q, k, context, method);
+
+  headers["Content-Type"] = "text/plain; charset=UTF-8";
+  body = querySuggestionListToJSON(suggestionList) + "\n";
+
+  end_time = clock();
+  cerr << "handle_suggest::time taken: " << float(end_time-start_time)/CLOCKS_PER_SEC << endl;
+
+  write_response(client, 200, "OK", headers, body);
+}
+
+
 static void handle_stats(client_t *client, parsed_url_t &url) {
     headers_t headers;
     headers["Cache-Control"] = "no-cache";
@@ -727,14 +810,16 @@ static void handle_invalid_request(client_t *client, parsed_url_t &url) {
     write_response(client, 404, "Not Found", headers, body);
 }
 
-
 void serve_request(client_t *client) {
     parsed_url_t url;
     parse_URL(client->url, url);
     std::string &request_uri = url.path;
     DCERR("request_uri: " << request_uri << endl);
 
-    if (request_uri == "/face/suggest/") {
+    if (request_uri == "/ping/") {
+        handle_ping(client, url);
+    }
+    else if (request_uri == "/complete/") {
         handle_suggest(client, url);
     }
     else if (request_uri == "/face/import/") {
@@ -751,35 +836,32 @@ void serve_request(client_t *client) {
     }
 }
 
-
-void
-show_usage(char *argv[]) {
+void show_usage(char *argv[]) {
     printf("Usage: %s [OPTION]...\n", basename(argv[0]));
-    printf("Start lib-face.\n\n");
+    printf("Start %s.\n\n", programName);
     printf("Optional arguments:\n\n");
     printf("-h, --help           This screen\n");
     printf("-f, --file=PATH      Path of the file containing the phrases\n");
-    printf("-p, --port=PORT      TCP port on which to start lib-face (default: 6767)\n");
+    printf("-p, --port=PORT      TCP port on which to start %s (default: 6767)\n", programName);
     printf("-l, --limit=LIMIT    Load only the first LIMIT lines from PATH (default: -1 [unlimited])\n");
     printf("\n");
-    printf("Please visit %s for more information.\n", project_homepage_url);
 }
 
-void
-parse_options(int argc, char *argv[]) {
+void parse_options(int argc, char *argv[]) {
     int c;
 
     while (1) {
         int option_index = 0;
         static struct option long_options[] = {
             {"file", 1, 0, 'f'},
+            {"context", 1, 0, 'c'},
             {"port", 1, 0, 'p'},
             {"limit", 1, 0, 'l'},
             {"help", 0, 0, 'h'},
             {0, 0, 0, 0}
         };
 
-        c = getopt_long(argc, argv, "f:p:l:h",
+        c = getopt_long(argc, argv, "f:c:p:l:h",
                         long_options, &option_index);
 
         if (c == -1)
@@ -791,6 +873,12 @@ parse_options(int argc, char *argv[]) {
             DCERR("File: "<<optarg<<endl);
             ac_file = optarg;
             break;
+
+        case 'c':
+            DCERR("Context file: "<<optarg<<endl);
+            context_file = optarg;
+            break;
+
 
         case 'p':
             DCERR("Port: "<<optarg<<" ("<<atoi(optarg)<<")\n");
@@ -811,13 +899,10 @@ parse_options(int argc, char *argv[]) {
             break;
         }
     }
-
-
 }
 
 
-int
-main(int argc, char* argv[]) {
+int main(int argc, char* argv[]) {
     parse_options(argc, argv);
     if (opt_show_help) {
         show_usage(argv);
@@ -826,37 +911,17 @@ main(int argc, char* argv[]) {
 
     started_at = time(NULL);
 
-    cerr<<"INFO::Starting lib-face on port '"<<port<<"'\n";
-
-    if (ac_file) {
-        int nadded, nlines;
-        const time_t start_time = time(NULL);
-        int ret = do_import(ac_file, line_limit, nadded, nlines);
-        if (ret < 0) {
-            switch (-ret) {
-            case IMPORT_FILE_NOT_FOUND:
-                fprintf(stderr, "The file '%s' was not found\n", ac_file);
-                break;
-
-            case IMPORT_MUNMAP_FAILED:
-                fprintf(stderr, "munmap(2) on file '%s' failed\n", ac_file);
-                break;
-
-            case IMPORT_MMAP_FAILED:
-                fprintf(stderr, "mmap(2) on file '%s' failed\n", ac_file);
-                break;
-
-            default:
-                cerr<<"ERROR::Unknown error: "<<ret<<endl;
-            }
-            return 1;
-        }
-        else {
-            fprintf(stderr, "INFO::Successfully added %d/%d records from \"%s\" in %d second(s)\n", 
-                    nadded, nlines, ac_file, (int)(time(NULL) - start_time));
-        }
+    if (context_file) {
+      cout << "Loading context file: " << context_file << endl;
+      contextManager.loadFromWord2Vec(context_file);
     }
 
+    if (ac_file) {
+      string indexFilename(ac_file);
+      initIndex(indexFilename);
+    }
+
+    cerr << "INFO::Starting " << programName << " on port " << port << endl;
     int r = httpserver_start(&serve_request, "0.0.0.0", port);
     if (r != 0) {
         fprintf(stderr, "ERROR::Could not start the web server\n");

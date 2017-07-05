@@ -1,5 +1,5 @@
-CXXFLAGS=       -Wall $(COPT) -D_FILE_OFFSET_BITS=64
-LINKFLAGS=	-lm -lrt -pthread
+CXXFLAGS=       -std=c++0x -Wall $(COPT) -D_FILE_OFFSET_BITS=64 -DARMA_USE_BLAS -L/opt/OpenBLAS/lib
+LINKFLAGS=	-lm -lrt -pthread -larmadillo -lopenblas
 INCDEPS=        include/segtree.hpp include/sparsetable.hpp include/benderrmq.hpp \
                 include/phrase_map.hpp include/suggest.hpp include/types.hpp \
                 include/utils.hpp include/httpserver.hpp
@@ -16,19 +16,22 @@ endif
 
 .PHONY: all clean debug test perf
 
-all: CXXFLAGS += -O2
+all: CXXFLAGS += -O3
 all: targets
 
 debug: CXXFLAGS += -g -DDEBUG
 debug: targets
 
 test: CXXFLAGS += -g -DDEBUG
-perf: CXXFLAGS += -O2
+perf: CXXFLAGS += -O3
 
-targets: lib-face
+targets: tapp
 
-lib-face: src/main.cpp $(OBJDEPS) $(INCDEPS)
-	$(CXX) -o lib-face src/main.cpp $(OBJDEPS) $(INCDIRS) $(CXXFLAGS) $(LINKFLAGS)
+tapp: src/main.cpp src/CompleteTrie.cpp src/QuerySuggester.cpp src/StringUtils.cpp src/ContextManager.cpp $(OBJDEPS) $(INCDEPS)
+	$(CXX) -o tapp src/main.cpp src/CompleteTrie.cpp src/QuerySuggester.cpp src/StringUtils.cpp src/ContextManager.cpp $(OBJDEPS) $(INCDIRS) $(CXXFLAGS) $(LINKFLAGS)
+
+tapp-shell:
+	$(CXX) -o tapp-shell src/QuerySuggester.cpp src/CompleteTrie.cpp src/ContextManager.cpp src/StringUtils.cpp src/tapp_shell.cpp $(INCDIRS) $(CXXFLAGS) $(LINKFLAGS) -lboost_program_options -DDEBUG
 
 src/httpserver.o: $(HTTPSERVERDEPS)
 	$(CXX) -o src/httpserver.o -c src/httpserver.cpp $(INCDIRS) $(CXXFLAGS)
@@ -53,4 +56,4 @@ perf:
 clean:
 	$(MAKE) -C deps/libuv clean
 	$(MAKE) -C deps/http-parser clean
-	rm -f lib-face tests/containers tests/rmq_perf src/httpserver.o
+	rm -f tapp tapp-shell tests/containers tests/rmq_perf src/httpserver.o
