@@ -5,7 +5,7 @@ A Typeahead (Autocomplete) server in cpp (tapp) where queries are suggested base
 The http server is based on [lib-face](https://github.com/duckduckgo/cpp-libface). This Typeahead server is using a naive tree data structure with hash map links to child nodes. The space usage can be improved a little bit by using a [Ternary search tree](https://en.wikipedia.org/wiki/Ternary_search_tree).
 
 Dependencies:
-- http-parser and libuv (in deps, run `git submodule update --init --recursive` after cloning)
+- [libuv](https://github.com/joyent/libuv/) and the [joyent http-parser](https://github.com/joyent/http-parser/) (already included in deps)
 - armadillo library for matrix computation. You may need to comment out the line #define ARMA_USE_WRAPPER in your include_path/armadillo_bits/config.hpp.
 - OpenBLAS for fast matrix computation with armadillo (change -L/opt/OpenBLAS/lib in Makefile to your OpenBLAS localtion)
 - Boost: for command arguments (program options)
