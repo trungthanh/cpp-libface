@@ -9,3 +9,10 @@ Dependencies:
 - armadillo library for matrix computation. You may need to comment out the line #define ARMA_USE_WRAPPER in your include_path/armadillo_bits/config.hpp.
 - OpenBLAS for fast matrix computation with armadillo (change -L/opt/OpenBLAS/lib in Makefile to your OpenBLAS localtion)
 - Boost: for command arguments (program options)
+
+Data files:
+- query index file (not included) with the following format:
+```<query_string><tab><comma_separated_list_of_tags_for_this_query><tab><score>```
+.The lines should be ordered in decreasing order of scores.
+- word2vec pretrain vectors:
+-- https://github.com/mmihaltz/word2vec-GoogleNews-vectors

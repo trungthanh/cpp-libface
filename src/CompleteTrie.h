@@ -16,6 +16,7 @@
 
 using namespace std;
 
+// This code is currently implementing a tree instead of a trie
 class CompleteTrie {
   private:
     CompleteTrieNode *root;
