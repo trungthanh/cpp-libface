@@ -11,9 +11,7 @@ Dependencies:
 - Boost: for command arguments (program options)
 
 Data files:
-- query index file (not included) with the following format:
+- query index file (not included) with the following format: The lines should be ordered in decreasing order of scores.
 ```<query_string><tab><comma_separated_list_of_tags_for_this_query><tab><score>```
-
-.The lines should be ordered in decreasing order of scores.
 - word2vec pretrain vectors:
 -- https://github.com/mmihaltz/word2vec-GoogleNews-vectors
